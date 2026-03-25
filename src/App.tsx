@@ -1,6 +1,7 @@
 import { useEffect, useState } from 'react';
 import { BrowserRouter as Router, Routes, Route, Navigate } from 'react-router-dom';
 import { isSupabaseConfigured, supabase } from './supabaseClient';
+import { roleFromEmail } from './roleFromEmail';
 import { UserProfile } from './types';
 import { Toaster } from 'sonner';
 
@@ -90,30 +91,74 @@ export default function App() {
       }
     }
 
+    const applyProfileRow = (row: Record<string, unknown>, emailFallback: string | null) => {
+      const createdRaw = row.created_at;
+      const createdAt =
+        typeof createdRaw === 'string' || createdRaw instanceof Date
+          ? new Date(createdRaw as string | Date).toISOString()
+          : new Date().toISOString();
+      setUser({
+        uid: row.id as string,
+        name: row.name as string,
+        email: (row.email as string) ?? emailFallback ?? '',
+        role: row.role as UserProfile['role'],
+        rollNo: (row.roll_no as string) ?? undefined,
+        classId: (row.class_id as string) ?? undefined,
+        semesterId: (row.semester_id as string) ?? undefined,
+        sectionId: (row.section_id as string) ?? undefined,
+        deviceId: (row.device_id as string) ?? undefined,
+        createdAt,
+      } as UserProfile);
+    };
+
     const loadProfile = async (userId: string, email: string | null) => {
-      let { data, error } = await supabase
-        .from('profiles')
-        .select('id,name,email,role,roll_no,class_id,semester_id,section_id,device_id,created_at')
-        .eq('id', userId)
-        .maybeSingle();
+      // Use * so older DBs without departmental columns still return a row (explicit columns 404 if missing).
+      let { data, error } = await supabase.from('profiles').select('*').eq('id', userId).maybeSingle();
 
       if (error) throw error;
 
-      // Session exists but no profile row (trigger missed / user created via dashboard). Create via RPC.
       if (!data) {
         const { error: rpcErr } = await supabase.rpc('ensure_my_profile');
-        if (rpcErr) {
-          console.error('ensure_my_profile failed:', rpcErr);
+        if (!rpcErr) {
+          const res = await supabase.from('profiles').select('*').eq('id', userId).maybeSingle();
+          if (res.error) throw res.error;
+          data = res.data;
+        }
+      }
+
+      if (!data) {
+        const { data: uu, error: uErr } = await supabase.auth.getUser();
+        if (uErr || !uu.user?.email) {
+          console.error('Profile bootstrap: no verified user email', uErr);
           setUser(null);
           return;
         }
-        const second = await supabase
-          .from('profiles')
-          .select('id,name,email,role,roll_no,class_id,semester_id,section_id,device_id,created_at')
-          .eq('id', userId)
-          .maybeSingle();
-        if (second.error) throw second.error;
-        data = second.data;
+        const au = uu.user;
+        const displayName =
+          typeof au.user_metadata?.name === 'string' && au.user_metadata.name.trim()
+            ? au.user_metadata.name.trim()
+            : au.email.split('@')[0];
+        const { error: insErr } = await supabase.from('profiles').insert({
+          id: userId,
+          name: displayName,
+          email: au.email,
+          role: roleFromEmail(au.email),
+        });
+        if (insErr) {
+          if (insErr.code === '23505') {
+            const res = await supabase.from('profiles').select('*').eq('id', userId).maybeSingle();
+            if (res.error) throw res.error;
+            data = res.data;
+          } else {
+            console.error('Profile insert failed (run migration 0004 profiles_insert_own + 0003 RPC):', insErr);
+            setUser(null);
+            return;
+          }
+        } else {
+          const res = await supabase.from('profiles').select('*').eq('id', userId).maybeSingle();
+          if (res.error) throw res.error;
+          data = res.data;
+        }
       }
 
       if (!data) {
@@ -121,18 +166,7 @@ export default function App() {
         return;
       }
 
-      setUser({
-        uid: data.id,
-        name: data.name,
-        email: data.email ?? email ?? '',
-        role: data.role as any,
-        rollNo: data.roll_no ?? undefined,
-        classId: data.class_id ?? undefined,
-        semesterId: (data as any).semester_id ?? undefined,
-        sectionId: (data as any).section_id ?? undefined,
-        deviceId: data.device_id ?? undefined,
-        createdAt: new Date(data.created_at).toISOString(),
-      } as any);
+      applyProfileRow(data as Record<string, unknown>, email);
     };
 
     let unsub: (() => void) | undefined;
