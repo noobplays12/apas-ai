@@ -3,7 +3,7 @@ import { BrowserRouter as Router, Routes, Route, Navigate } from 'react-router-d
 import { isSupabaseConfigured, supabase } from './supabaseClient';
 import { roleFromEmail } from './roleFromEmail';
 import { UserProfile } from './types';
-import { Toaster } from 'sonner';
+import { Toaster, toast } from 'sonner';
 
 // Pages
 import Login from './pages/Login';
@@ -26,6 +26,11 @@ import AdminActiveSessions from './pages/AdminActiveSessions';
 
 const SESSION_TIMEOUT_MS = 15_000;
 const PROFILE_LOAD_TIMEOUT_MS = 20_000;
+
+function formatAuthError(e: unknown): string {
+  if (e && typeof e === 'object' && 'message' in e) return String((e as { message: string }).message);
+  return String(e);
+}
 
 function withTimeout<T>(promise: Promise<T>, ms: number, label: string): Promise<T> {
   return new Promise((resolve, reject) => {
@@ -112,51 +117,75 @@ export default function App() {
     };
 
     const loadProfile = async (userId: string, email: string | null) => {
-      // Use * so older DBs without departmental columns still return a row (explicit columns 404 if missing).
-      let { data, error } = await supabase.from('profiles').select('*').eq('id', userId).maybeSingle();
+      const { data: authData, error: authErr } = await supabase.auth.getUser();
+      if (authErr || !authData.user) {
+        toast.error(`Session error: ${formatAuthError(authErr ?? 'no user')}`);
+        setUser(null);
+        return;
+      }
+      const uid = authData.user.id;
 
-      if (error) throw error;
+      // Use * so older DBs without departmental columns still return a row.
+      let { data, error } = await supabase.from('profiles').select('*').eq('id', uid).maybeSingle();
+
+      if (error) {
+        toast.error(`Profile load: ${formatAuthError(error)}`);
+        throw error;
+      }
 
       if (!data) {
         const { error: rpcErr } = await supabase.rpc('ensure_my_profile');
         if (!rpcErr) {
-          const res = await supabase.from('profiles').select('*').eq('id', userId).maybeSingle();
-          if (res.error) throw res.error;
+          const res = await supabase.from('profiles').select('*').eq('id', uid).maybeSingle();
+          if (res.error) {
+            toast.error(`Profile after RPC: ${formatAuthError(res.error)}`);
+            throw res.error;
+          }
           data = res.data;
+        } else {
+          console.warn('ensure_my_profile:', rpcErr);
         }
       }
 
       if (!data) {
-        const { data: uu, error: uErr } = await supabase.auth.getUser();
-        if (uErr || !uu.user?.email) {
-          console.error('Profile bootstrap: no verified user email', uErr);
+        const au = authData.user;
+        if (!au.email) {
+          toast.error('Your account has no email; cannot create a profile.');
           setUser(null);
           return;
         }
-        const au = uu.user;
         const displayName =
           typeof au.user_metadata?.name === 'string' && au.user_metadata.name.trim()
             ? au.user_metadata.name.trim()
             : au.email.split('@')[0];
         const { error: insErr } = await supabase.from('profiles').insert({
-          id: userId,
+          id: uid,
           name: displayName,
           email: au.email,
           role: roleFromEmail(au.email),
         });
         if (insErr) {
           if (insErr.code === '23505') {
-            const res = await supabase.from('profiles').select('*').eq('id', userId).maybeSingle();
-            if (res.error) throw res.error;
+            const res = await supabase.from('profiles').select('*').eq('id', uid).maybeSingle();
+            if (res.error) {
+              toast.error(`Profile after duplicate: ${formatAuthError(res.error)}`);
+              throw res.error;
+            }
             data = res.data;
           } else {
-            console.error('Profile insert failed (run migration 0004 profiles_insert_own + 0003 RPC):', insErr);
+            toast.error(
+              `Cannot create profile: ${insErr.message}. In Supabase SQL, run migrations 0003 (RPC), 0005 (insert trigger + policy).`
+            );
+            console.error('Profile insert failed:', insErr);
             setUser(null);
             return;
           }
         } else {
-          const res = await supabase.from('profiles').select('*').eq('id', userId).maybeSingle();
-          if (res.error) throw res.error;
+          const res = await supabase.from('profiles').select('*').eq('id', uid).maybeSingle();
+          if (res.error) {
+            toast.error(`Profile read: ${formatAuthError(res.error)}`);
+            throw res.error;
+          }
           data = res.data;
         }
       }
@@ -166,7 +195,7 @@ export default function App() {
         return;
       }
 
-      applyProfileRow(data as Record<string, unknown>, email);
+      applyProfileRow(data as Record<string, unknown>, email ?? authData.user.email ?? null);
     };
 
     let unsub: (() => void) | undefined;
@@ -182,6 +211,7 @@ export default function App() {
             );
           } catch (e) {
             console.error('Supabase auth sync error:', e);
+            toast.error(`Auth: ${formatAuthError(e)}`);
             setUser(null);
           }
         } else {
@@ -189,6 +219,7 @@ export default function App() {
         }
       } catch (e) {
         console.error('Supabase init error:', e);
+        toast.error(`Startup: ${formatAuthError(e)}`);
         setUser(null);
       } finally {
         setLoading(false);
@@ -224,6 +255,7 @@ export default function App() {
             );
           } catch (e) {
             console.error('Supabase auth sync error:', e);
+            toast.error(`Auth: ${formatAuthError(e)}`);
             setUser(null);
           } finally {
             setLoading(false);
@@ -241,21 +273,17 @@ export default function App() {
     };
   }, []);
 
-  if (loading) {
-    return (
-      <div className="flex h-screen items-center justify-center bg-[#F8FAFF]">
-        <div className="h-12 w-12 animate-spin rounded-full border-4 border-[#0A66FF] border-t-transparent"></div>
-      </div>
-    );
-  }
-
-  if (!isSupabaseConfigured) {
-    return <MissingSupabaseEnv />;
-  }
-
   return (
-    <Router>
+    <>
       <Toaster position="top-right" richColors />
+      {loading ? (
+        <div className="flex h-screen items-center justify-center bg-[#F8FAFF]">
+          <div className="h-12 w-12 animate-spin rounded-full border-4 border-[#0A66FF] border-t-transparent"></div>
+        </div>
+      ) : !isSupabaseConfigured ? (
+        <MissingSupabaseEnv />
+      ) : (
+        <Router>
       <Routes>
         <Route path="/login" element={user ? <Navigate to="/" /> : <Login />} />
         <Route path="/unauthorized" element={<Unauthorized />} />
@@ -315,6 +343,8 @@ export default function App() {
           <Route path="/settings" element={user ? <SystemSettings user={user} /> : <Navigate to="/login" replace />} />
         </Route>
       </Routes>
-    </Router>
+        </Router>
+      )}
+    </>
   );
 }
