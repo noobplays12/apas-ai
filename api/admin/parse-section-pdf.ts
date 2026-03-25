@@ -110,6 +110,16 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
       return res.status(400).json({ error: 'Missing pdfBase64, semesterId, or sectionId' });
     }
 
+    // Guard against Vercel payload/body limits (base64 inflates size ~4/3).
+    // We estimate decoded bytes to fail fast with JSON.
+    const approxDecodedBytes = Math.ceil((pdfBase64.length * 3) / 4);
+    const MAX_DECoded_BYTES = 3_000_000; // match client guard
+    if (approxDecodedBytes > MAX_DECoded_BYTES) {
+      return res.status(413).json({
+        error: `PDF too large for upload. Estimated decoded size ${(approxDecodedBytes / (1024 * 1024)).toFixed(2)}MB. Use a PDF under ~3MB.`,
+      });
+    }
+
     const buf = Buffer.from(pdfBase64, 'base64');
     if (buf.length > 6 * 1024 * 1024) {
       return res.status(413).json({ error: 'PDF too large (max ~6MB)' });

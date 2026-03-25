@@ -116,6 +116,15 @@ export default function AdminUploadSectionPdf({ user: _user }: Props) {
       toast.error('Select semester, section, and a PDF');
       return;
     }
+
+    // Vercel request body limits can trigger FUNCTION_INVOCATION_FAILED before the server can respond.
+    // Since we send the PDF as base64 inside JSON, keep file size small.
+    const MAX_PDF_BYTES = 3_000_000; // ~3MB (base64 inflates payload further)
+    if (file.size > MAX_PDF_BYTES) {
+      toast.error(`PDF is too large for upload. Please use a PDF under ~3MB. Current: ${(file.size / (1024 * 1024)).toFixed(2)}MB`);
+      return;
+    }
+
     setUploading(true);
     setProgress(10);
     setLogs([]);
