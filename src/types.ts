@@ -10,6 +10,9 @@ export interface UserProfile {
   rollNo?: string;
   role: UserRole;
   classId?: string;
+  /** Departmental mapping (preferred for attendance scoping) */
+  semesterId?: string;
+  sectionId?: string;
   deviceId?: string;
   createdAt: IsoTimestamp;
 }
@@ -28,7 +31,10 @@ export interface Subject {
 
 export interface Session {
   id: string;
-  classId: string;
+  /** Legacy class id; optional when semesterId + sectionId are set */
+  classId?: string;
+  semesterId?: string;
+  sectionId?: string;
   subjectId: string;
   teacherId: string;
   startTime: IsoTimestamp;
@@ -57,4 +63,29 @@ export interface Attendance {
   };
   wifiSSID?: string;
   verified: boolean;
+}
+
+export interface Semester {
+  id: string;
+  name: string;
+  sortOrder: number;
+}
+
+export interface Section {
+  id: string;
+  semesterId: string;
+  sectionName: string;
+  displayLabel?: string;
+}
+
+export interface TimetableSlot {
+  id: string;
+  teacherId: string;
+  subjectId: string;
+  semesterId: string;
+  sectionId: string;
+  dayOfWeek: number;
+  startTime: string;
+  endTime: string;
+  slotLabel?: string;
 }

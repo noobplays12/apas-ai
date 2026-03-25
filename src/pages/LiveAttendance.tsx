@@ -51,11 +51,16 @@ export default function LiveAttendance({ user }: LiveAttendanceProps) {
           const sessionData = mapSessionRow(sessionRow as any);
           setSession(sessionData);
 
-          const { data: studentRows, error: stErr } = await supabase
-            .from('profiles')
-            .select('*')
-            .eq('class_id', sessionData.classId)
-            .eq('role', 'student');
+          let studentQuery = supabase.from('profiles').select('*').eq('role', 'student');
+          if (sessionData.sectionId) {
+            studentQuery = studentQuery.eq('section_id', sessionData.sectionId);
+          } else if (sessionData.classId) {
+            studentQuery = studentQuery.eq('class_id', sessionData.classId);
+          } else {
+            setStudents([]);
+            return;
+          }
+          const { data: studentRows, error: stErr } = await studentQuery;
           if (stErr) throw stErr;
           setStudents((studentRows ?? []).map((r: any) => mapProfileRow(r)));
         } else {

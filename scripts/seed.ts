@@ -41,22 +41,59 @@ async function main() {
   const { error: sErr } = await supabase.from('subjects').upsert(subjects, { onConflict: 'id' });
   if (sErr) throw sErr;
 
+  // Departmental: semester + section (requires migration 0002_departmental.sql)
+  let semesterId: string | null = null;
+  let sectionId: string | null = null;
+  try {
+    const { data: semExisting } = await supabase.from('semesters').select('id').eq('name', 'BSCS Semester 5').maybeSingle();
+    if (semExisting?.id) {
+      semesterId = semExisting.id;
+    } else {
+      const { data: semIns, error: semErr } = await supabase
+        .from('semesters')
+        .insert({ name: 'BSCS Semester 5', sort_order: 5 })
+        .select('id')
+        .single();
+      if (!semErr && semIns?.id) semesterId = semIns.id;
+    }
+    if (semesterId) {
+      const { data: secExisting } = await supabase
+        .from('sections')
+        .select('id')
+        .eq('semester_id', semesterId)
+        .eq('section_name', 'A')
+        .maybeSingle();
+      if (secExisting?.id) {
+        sectionId = secExisting.id;
+      } else {
+        const { data: secIns, error: secErr } = await supabase
+          .from('sections')
+          .insert({ semester_id: semesterId, section_name: 'A', display_label: 'CS 2024 Sec A' })
+          .select('id')
+          .single();
+        if (!secErr && secIns?.id) sectionId = secIns.id;
+      }
+    }
+  } catch (e) {
+    console.warn('Departmental seed skipped (apply supabase/migrations/0002_departmental.sql):', e);
+  }
+
   // Create demo users (roles are assigned by the DB trigger based on email)
   const demoPassword = process.env.DEMO_PASSWORD?.trim() || 'Password@12345';
 
-  const demoUsers = [
-    { email: 'demo.teacher@iub.edu.pk', name: 'Demo Teacher', roleHint: 'teacher' as const },
-    { email: 'demo.student1@gmail.com', name: 'Demo Student 1', roleHint: 'student' as const },
-    { email: 'demo.student2@gmail.com', name: 'Demo Student 2', roleHint: 'student' as const },
+  const demoUsers: { email: string; name: string; roleHint: 'teacher' | 'student' }[] = [
+    { email: 'demo.teacher@iub.edu.pk', name: 'Demo Teacher', roleHint: 'teacher' },
+    { email: 'demo.student1@gmail.com', name: 'Demo Student 1', roleHint: 'student' },
+    { email: 'demo.student2@gmail.com', name: 'Demo Student 2', roleHint: 'student' },
   ];
 
-  for (const u of demoUsers) {
+  for (const demo of demoUsers) {
     // Create or fetch user
     const { data: created, error: createErr } = await supabase.auth.admin.createUser({
-      email: u.email,
+      email: demo.email,
       password: demoPassword,
       email_confirm: true,
-      user_metadata: { name: u.name },
+      user_metadata: { name: demo.name },
     });
 
     // If already exists, fetch by email
@@ -64,20 +101,25 @@ async function main() {
     if (!userId) {
       const { data: list, error: listErr } = await supabase.auth.admin.listUsers({ page: 1, perPage: 200 });
       if (listErr) throw listErr;
-      const existing = list.users.find((x) => (x.email ?? '').toLowerCase() === u.email.toLowerCase());
+      const target = demo.email.toLowerCase();
+      const users = list.users as { id: string; email?: string | null }[];
+      const existing = users.find((x) => (x.email ?? '').toLowerCase() === target);
       if (!existing?.id) {
         if (createErr) throw createErr;
-        throw new Error(`Failed to create/find user for ${u.email}`);
+        throw new Error(`Failed to create/find user for ${demo.email}`);
       }
       userId = existing.id;
     }
 
     // Ensure profile fields we need for the UI are present
-    if (u.roleHint === 'student') {
-      await supabase
-        .from('profiles')
-        .update({ class_id: 'CS-2024-A', roll_no: u.email.includes('1') ? 'CS24A-001' : 'CS24A-002' })
-        .eq('id', userId);
+    if (demo.roleHint === 'student') {
+      const patch: Record<string, string> = {
+        class_id: 'CS-2024-A',
+        roll_no: demo.email.includes('1') ? 'CS24A-001' : 'CS24A-002',
+      };
+      if (semesterId) patch.semester_id = semesterId;
+      if (sectionId) patch.section_id = sectionId;
+      await supabase.from('profiles').update(patch).eq('id', userId);
     }
   }
 

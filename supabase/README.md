@@ -4,10 +4,11 @@
 - Create a new Supabase project in the Supabase dashboard.
 
 ### 2) Run migrations
-Run the SQL in:
+Run the SQL in order:
 - `supabase/migrations/0001_init.sql`
+- `supabase/migrations/0002_departmental.sql` (semesters, sections, timetable, multi-session scoping, PDF/Excel imports)
 
-You can run it in the Supabase SQL editor.
+You can run each file in the Supabase SQL editor.
 
 ### 3) Enable Realtime (required for live sessions/check-ins)
 In Supabase dashboard:

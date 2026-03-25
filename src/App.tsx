@@ -19,6 +19,9 @@ import SystemSettings from './pages/SystemSettings';
 import Unauthorized from './pages/Unauthorized';
 import Layout from './components/Layout';
 import MissingSupabaseEnv from './components/MissingSupabaseEnv';
+import AdminUploadSectionPdf from './pages/AdminUploadSectionPdf';
+import AdminUploadTimetable from './pages/AdminUploadTimetable';
+import AdminActiveSessions from './pages/AdminActiveSessions';
 
 export default function App() {
   const [user, setUser] = useState<UserProfile | null>(null);
@@ -51,7 +54,10 @@ export default function App() {
           }
 
           // Force logout if mock user is missing required fields (like classId for students)
-          if ((mockUser as any).role === 'student' && !(mockUser as any).classId) {
+          const hasStudentScope =
+            (mockUser as any).classId ||
+            ((mockUser as any).semesterId && (mockUser as any).sectionId);
+          if ((mockUser as any).role === 'student' && !hasStudentScope) {
             localStorage.removeItem('mock_user');
             setLoading(false);
             return;
@@ -69,7 +75,7 @@ export default function App() {
     const loadProfile = async (userId: string, email: string | null) => {
       const { data, error } = await supabase
         .from('profiles')
-        .select('id,name,email,role,roll_no,class_id,device_id,created_at')
+        .select('id,name,email,role,roll_no,class_id,semester_id,section_id,device_id,created_at')
         .eq('id', userId)
         .maybeSingle();
 
@@ -87,6 +93,8 @@ export default function App() {
         role: data.role as any,
         rollNo: data.roll_no ?? undefined,
         classId: data.class_id ?? undefined,
+        semesterId: (data as any).semester_id ?? undefined,
+        sectionId: (data as any).section_id ?? undefined,
         deviceId: data.device_id ?? undefined,
         createdAt: new Date(data.created_at).toISOString(),
       } as any);
@@ -189,6 +197,18 @@ export default function App() {
           <Route
             path="/classes"
             element={user && user.role === 'admin' ? <ClassManagement user={user} /> : <Navigate to="/unauthorized" replace />}
+          />
+          <Route
+            path="/admin/upload-sections"
+            element={user && user.role === 'admin' ? <AdminUploadSectionPdf user={user} /> : <Navigate to="/unauthorized" replace />}
+          />
+          <Route
+            path="/admin/upload-timetable"
+            element={user && user.role === 'admin' ? <AdminUploadTimetable user={user} /> : <Navigate to="/unauthorized" replace />}
+          />
+          <Route
+            path="/admin/active-sessions"
+            element={user && user.role === 'admin' ? <AdminActiveSessions user={user} /> : <Navigate to="/unauthorized" replace />}
           />
           <Route path="/settings" element={user ? <SystemSettings user={user} /> : <Navigate to="/login" replace />} />
         </Route>

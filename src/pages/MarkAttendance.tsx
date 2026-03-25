@@ -23,7 +23,7 @@ import { motion, AnimatePresence } from 'motion/react';
 import { calculateDistance, generateDeviceId, cn } from '../lib/utils';
 import { useNavigate } from 'react-router-dom';
 import { toDate, toIso } from '../lib/time';
-import { seedDemoData } from '../firebase';
+import { studentActiveSessionsQuery } from '../lib/sessionScope';
 
 interface MarkAttendanceProps {
   user: UserProfile;
@@ -52,19 +52,14 @@ export default function MarkAttendance({ user }: MarkAttendanceProps) {
 
   useEffect(() => {
     const fetchActiveSession = async () => {
-      if (!user.classId) {
+      const q = studentActiveSessionsQuery(user);
+      if (!q) {
         setLoading(false);
         return;
       }
-      
+
       try {
-        const { data, error } = await supabase
-          .from('sessions')
-          .select('*')
-          .eq('class_id', user.classId)
-          .eq('is_active', true)
-          .order('created_at', { ascending: false })
-          .limit(1);
+        const { data, error } = await q;
         if (error) throw error;
 
         if (data && data[0]) {
@@ -102,7 +97,7 @@ export default function MarkAttendance({ user }: MarkAttendanceProps) {
     return () => {
       if (timerRef.current) clearInterval(timerRef.current);
     };
-  }, [user.classId]);
+  }, [user.classId, user.semesterId, user.sectionId]);
 
   const startTimer = (endTime: Date) => {
     if (timerRef.current) clearInterval(timerRef.current);
@@ -255,28 +250,15 @@ export default function MarkAttendance({ user }: MarkAttendanceProps) {
           <Clock size={48} />
         </div>
         <h2 className="text-2xl font-bold text-gray-900">No Active Session</h2>
-        <p className="mt-2 text-gray-500">There are no attendance sessions active for your class right now.</p>
+        <p className="mt-2 text-gray-500">
+          There is no active class session for your section right now. Check back when your teacher starts a session.
+        </p>
         <div className="mt-8 flex flex-col gap-3 sm:flex-row">
-          <button 
+          <button
             onClick={() => navigate('/')}
             className="rounded-2xl bg-gray-100 px-8 py-3 font-bold text-gray-600 transition-all hover:bg-gray-200"
           >
             Back to Dashboard
-          </button>
-          <button 
-            onClick={async () => {
-              try {
-                toast.info('Seeding demo data...');
-                await seedDemoData();
-                toast.success('Data seeded! Refreshing...');
-                window.location.reload();
-              } catch (e) {
-                toast.error('Seeding failed');
-              }
-            }}
-            className="rounded-2xl bg-[#003399] px-8 py-3 font-bold text-white shadow-lg shadow-blue-900/20 transition-all hover:bg-[#002266]"
-          >
-            Seed Demo Data
           </button>
         </div>
       </div>

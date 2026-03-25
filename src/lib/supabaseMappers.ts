@@ -7,13 +7,17 @@ export type ProfileRow = {
   role: 'student' | 'teacher' | 'admin';
   roll_no: string | null;
   class_id: string | null;
+  semester_id: string | null;
+  section_id: string | null;
   device_id: string | null;
   created_at: string;
 };
 
 export type SessionRow = {
   id: string;
-  class_id: string;
+  class_id: string | null;
+  semester_id: string | null;
+  section_id: string | null;
   subject_id: string;
   teacher_id: string;
   start_time: string;
@@ -48,6 +52,8 @@ export function mapProfileRow(row: ProfileRow): UserProfile {
     role: row.role,
     rollNo: row.roll_no ?? undefined,
     classId: row.class_id ?? undefined,
+    semesterId: row.semester_id ?? undefined,
+    sectionId: row.section_id ?? undefined,
     deviceId: row.device_id ?? undefined,
     createdAt: row.created_at,
   };
@@ -56,7 +62,9 @@ export function mapProfileRow(row: ProfileRow): UserProfile {
 export function mapSessionRow(row: SessionRow): Session {
   return {
     id: row.id,
-    classId: row.class_id,
+    classId: row.class_id ?? undefined,
+    semesterId: row.semester_id ?? undefined,
+    sectionId: row.section_id ?? undefined,
     subjectId: row.subject_id,
     teacherId: row.teacher_id,
     startTime: row.start_time,

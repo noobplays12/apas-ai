@@ -13,7 +13,9 @@ import {
   X,
   FileText,
   Shield,
-  Activity
+  Activity,
+  Upload,
+  FileSpreadsheet
 } from 'lucide-react';
 import { useState, useEffect } from 'react';
 import { UserProfile, Session } from '../types';
@@ -21,6 +23,7 @@ import { supabase } from '../supabaseClient';
 import { cn } from '../lib/utils';
 import { motion, AnimatePresence } from 'motion/react';
 import { mapSessionRow } from '../lib/supabaseMappers';
+import { studentActiveSessionsQuery } from '../lib/sessionScope';
 
 interface LayoutProps {
   user: UserProfile;
@@ -29,6 +32,7 @@ interface LayoutProps {
 export default function Layout({ user }: LayoutProps) {
   const [isSidebarOpen, setIsSidebarOpen] = useState(false);
   const [activeSession, setActiveSession] = useState<Session | null>(null);
+  const [teacherActiveCount, setTeacherActiveCount] = useState(0);
   const location = useLocation();
   const navigate = useNavigate();
 
@@ -42,26 +46,28 @@ export default function Layout({ user }: LayoutProps) {
           .select('*')
           .eq('teacher_id', user.uid)
           .eq('is_active', true)
-          .order('created_at', { ascending: false })
-          .limit(1);
+          .order('created_at', { ascending: false });
         if (cancelled) return;
         if (error) {
           console.error('Active session fetch error:', error);
           setActiveSession(null);
+          setTeacherActiveCount(0);
           return;
         }
-        setActiveSession(data && data[0] ? (mapSessionRow(data[0] as any) as Session) : null);
+        const list = data ?? [];
+        setTeacherActiveCount(list.length);
+        setActiveSession(list[0] ? (mapSessionRow(list[0] as any) as Session) : null);
         return;
       }
 
-      if (user.role === 'student' && user.classId) {
-        const { data, error } = await supabase
-          .from('sessions')
-          .select('*')
-          .eq('class_id', user.classId)
-          .eq('is_active', true)
-          .order('created_at', { ascending: false })
-          .limit(1);
+      if (user.role === 'student') {
+        setTeacherActiveCount(0);
+        const q = studentActiveSessionsQuery(user);
+        if (!q) {
+          setActiveSession(null);
+          return;
+        }
+        const { data, error } = await q;
         if (cancelled) return;
         if (error) {
           console.error('Active session fetch error:', error);
@@ -73,6 +79,7 @@ export default function Layout({ user }: LayoutProps) {
       }
 
       if (user.role === 'admin') {
+        setTeacherActiveCount(0);
         const { data, error } = await supabase
           .from('sessions')
           .select('*')
@@ -89,6 +96,7 @@ export default function Layout({ user }: LayoutProps) {
         return;
       }
 
+      setTeacherActiveCount(0);
       setActiveSession(null);
     };
 
@@ -108,7 +116,7 @@ export default function Layout({ user }: LayoutProps) {
       cancelled = true;
       supabase.removeChannel(channel);
     };
-  }, [user.uid, user.role, user.classId]);
+  }, [user.uid, user.role, user.classId, user.semesterId, user.sectionId]);
 
   const handleLogout = async () => {
     localStorage.removeItem('mock_user');
@@ -131,6 +139,9 @@ export default function Layout({ user }: LayoutProps) {
     { name: 'Student Management', path: '/students', icon: GraduationCap, roles: ['admin'] },
     { name: 'Teacher Management', path: '/teachers', icon: Users, roles: ['admin'] },
     { name: 'Class Management', path: '/classes', icon: BookOpen, roles: ['admin'] },
+    { name: 'Upload section PDF', path: '/admin/upload-sections', icon: Upload, roles: ['admin'] },
+    { name: 'Upload timetable', path: '/admin/upload-timetable', icon: FileSpreadsheet, roles: ['admin'] },
+    { name: 'Active sessions', path: '/admin/active-sessions', icon: Activity, roles: ['admin'] },
   ];
 
   const filteredItems = menuItems.filter(item => item.roles.includes(user.role));
@@ -203,6 +214,9 @@ export default function Layout({ user }: LayoutProps) {
                 <div className="overflow-hidden">
                   <p className="text-[10px] font-black uppercase tracking-widest opacity-70">Live Session</p>
                   <p className="truncate text-sm font-black tracking-tight">{activeSession.subjectId}</p>
+                  {user.role === 'teacher' && teacherActiveCount > 1 && (
+                    <p className="text-[10px] font-bold text-green-800">{teacherActiveCount} concurrent</p>
+                  )}
                 </div>
               </Link>
             )}

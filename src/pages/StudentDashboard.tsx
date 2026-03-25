@@ -23,6 +23,7 @@ import {
 import { Link } from 'react-router-dom';
 import { motion } from 'motion/react';
 import { cn } from '../lib/utils';
+import { studentActiveSessionsQuery } from '../lib/sessionScope';
 import { 
   ResponsiveContainer, 
   BarChart, 
@@ -64,12 +65,13 @@ export default function StudentDashboard({ user }: StudentDashboardProps) {
     };
 
     fetchData();
-  }, [user.uid, user.classId]);
+  }, [user.uid, user.classId, user.semesterId, user.sectionId]);
 
   // Real-time listener for the active session for this student's class.
   // This makes the "teacher creates a session → student logs in and sees it live" flow reliable.
   useEffect(() => {
-    if (!user.classId) {
+    const q = studentActiveSessionsQuery(user);
+    if (!q) {
       setActiveSession(null);
       return;
     }
@@ -77,13 +79,7 @@ export default function StudentDashboard({ user }: StudentDashboardProps) {
     let cancelled = false;
 
     const fetchActive = async () => {
-      const { data, error } = await supabase
-        .from('sessions')
-        .select('*')
-        .eq('class_id', user.classId)
-        .eq('is_active', true)
-        .order('created_at', { ascending: false })
-        .limit(1);
+      const { data, error } = await q;
       if (cancelled) return;
       if (error) {
         console.error('Active session fetch error:', error);
@@ -108,7 +104,7 @@ export default function StudentDashboard({ user }: StudentDashboardProps) {
       cancelled = true;
       supabase.removeChannel(channel);
     };
-  }, [user.classId]);
+  }, [user.classId, user.semesterId, user.sectionId]);
 
   // Real-time listener to know if THIS student already marked attendance
   // for the currently active session.
@@ -185,6 +181,8 @@ export default function StudentDashboard({ user }: StudentDashboardProps) {
     },
   ];
 
+  const hasClassScope = Boolean(user.classId || (user.semesterId && user.sectionId));
+
   return (
     <div className="space-y-10 pb-12 font-sans">
       {/* Greeting Section */}
@@ -196,11 +194,11 @@ export default function StudentDashboard({ user }: StudentDashboardProps) {
           <h1 className="mt-2 text-5xl font-black tracking-tight text-gray-900">
             Welcome back, {user.name.split(' ')[0]}.
           </h1>
-          {!user.classId ? (
+          {!hasClassScope ? (
             <div className="mt-4 flex items-center gap-3 rounded-2xl bg-orange-50 p-4 text-orange-700 border border-orange-100">
               <AlertCircle size={20} />
               <p className="text-sm font-bold">
-                No class assigned. Please contact your administrator to be assigned to a class.
+                No class or section assigned. Please contact your administrator.
               </p>
             </div>
           ) : (
@@ -209,7 +207,7 @@ export default function StudentDashboard({ user }: StudentDashboardProps) {
             </p>
           )}
         </div>
-        {user.classId && (
+        {hasClassScope && (
           !hasMarkedActiveSession && activeSession && (
             <Link
               to="/mark-attendance"
