@@ -94,22 +94,22 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
     return res.status(405).json({ error: 'Method not allowed' });
   }
 
-  const { role } = await getAuthedUserAndRole(req);
-  if (role !== 'admin') {
-    return res.status(403).json({ error: 'Forbidden' });
-  }
-
-  const supabase = getSupabaseAdmin();
-  const body = typeof req.body === 'string' ? JSON.parse(req.body) : req.body;
-  const pdfBase64: string | undefined = body?.pdfBase64;
-  const semesterId: string | undefined = body?.semesterId;
-  const sectionId: string | undefined = body?.sectionId;
-
-  if (!pdfBase64 || !semesterId || !sectionId) {
-    return res.status(400).json({ error: 'Missing pdfBase64, semesterId, or sectionId' });
-  }
-
   try {
+    const { role } = await getAuthedUserAndRole(req);
+    if (role !== 'admin') {
+      return res.status(403).json({ error: 'Forbidden' });
+    }
+
+    const supabase = getSupabaseAdmin();
+    const body = typeof req.body === 'string' ? JSON.parse(req.body) : req.body;
+    const pdfBase64: string | undefined = body?.pdfBase64;
+    const semesterId: string | undefined = body?.semesterId;
+    const sectionId: string | undefined = body?.sectionId;
+
+    if (!pdfBase64 || !semesterId || !sectionId) {
+      return res.status(400).json({ error: 'Missing pdfBase64, semesterId, or sectionId' });
+    }
+
     const buf = Buffer.from(pdfBase64, 'base64');
     if (buf.length > 6 * 1024 * 1024) {
       return res.status(413).json({ error: 'PDF too large (max ~6MB)' });
@@ -153,7 +153,7 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
 
     return res.status(200).json({ ok: true, inserted: rows.length, skipped: 0, totalParsed: rows.length, warnings: [] });
   } catch (e: any) {
-    console.error('parse-section-pdf', e);
+    console.error('parse-section-pdf (handler failed)', e);
     return res.status(500).json({ error: e?.message ?? 'Parse failed' });
   }
 }

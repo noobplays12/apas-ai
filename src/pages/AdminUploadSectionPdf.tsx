@@ -138,8 +138,25 @@ export default function AdminUploadSectionPdf({ user: _user }: Props) {
         body: JSON.stringify({ pdfBase64, semesterId, sectionId }),
       });
       setProgress(90);
-      const json = await res.json();
-      if (!res.ok) throw new Error(json.error || 'Upload failed');
+      const resText = await res.text();
+      let json: any = null;
+      const ct = res.headers.get('content-type') || '';
+      if (ct.includes('application/json') || (resText.trim().startsWith('{') || resText.trim().startsWith('['))) {
+        try {
+          json = JSON.parse(resText);
+        } catch {
+          // If JSON parsing fails, we still want a helpful error below.
+          json = null;
+        }
+      }
+
+      if (!res.ok) {
+        const msg = json?.error || `Server error (${res.status}). ${resText.slice(0, 200)}`;
+        throw new Error(msg);
+      }
+      if (!json) {
+        throw new Error(`Server returned non-JSON success response. ${resText.slice(0, 200)}`);
+      }
       setLogs([
         `Parsed rows: ${json.totalParsed ?? 0}`,
         `Inserted/updated: ${json.inserted ?? 0}`,
