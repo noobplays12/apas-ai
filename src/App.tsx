@@ -23,6 +23,24 @@ import AdminUploadSectionPdf from './pages/AdminUploadSectionPdf';
 import AdminUploadTimetable from './pages/AdminUploadTimetable';
 import AdminActiveSessions from './pages/AdminActiveSessions';
 
+const SESSION_TIMEOUT_MS = 15_000;
+const PROFILE_LOAD_TIMEOUT_MS = 20_000;
+
+function withTimeout<T>(promise: Promise<T>, ms: number, label: string): Promise<T> {
+  return new Promise((resolve, reject) => {
+    const t = setTimeout(() => reject(new Error(`${label} timed out after ${ms}ms`)), ms);
+    promise
+      .then((v) => {
+        clearTimeout(t);
+        resolve(v);
+      })
+      .catch((e) => {
+        clearTimeout(t);
+        reject(e);
+      });
+  });
+}
+
 export default function App() {
   const [user, setUser] = useState<UserProfile | null>(null);
   const [loading, setLoading] = useState(true);
@@ -119,32 +137,57 @@ export default function App() {
 
     let unsub: (() => void) | undefined;
     (async () => {
-      const { data } = await supabase.auth.getSession();
-      if (data.session?.user) {
-        try {
-          await loadProfile(data.session.user.id, data.session.user.email ?? null);
-        } catch (e) {
-          console.error('Supabase auth sync error:', e);
+      try {
+        const { data } = await withTimeout(supabase.auth.getSession(), SESSION_TIMEOUT_MS, 'getSession');
+        if (data.session?.user) {
+          try {
+            await withTimeout(
+              loadProfile(data.session.user.id, data.session.user.email ?? null),
+              PROFILE_LOAD_TIMEOUT_MS,
+              'loadProfile'
+            );
+          } catch (e) {
+            console.error('Supabase auth sync error:', e);
+            setUser(null);
+          }
+        } else {
           setUser(null);
         }
-      } else {
+      } catch (e) {
+        console.error('Supabase init error:', e);
         setUser(null);
+      } finally {
+        setLoading(false);
       }
-      setLoading(false);
 
       const { data: sub } = supabase.auth.onAuthStateChange(async (_event, session) => {
         // Callback may pass null while a session still exists (e.g. INITIAL_SESSION after a storage
         // read error in GoTrueClient._emitInitialSession). Re-read from the client before clearing.
         let s = session;
         if (!s?.user) {
-          const { data: fromClient } = await supabase.auth.getSession();
-          s = fromClient.session;
+          try {
+            const { data: fromClient } = await withTimeout(
+              supabase.auth.getSession(),
+              SESSION_TIMEOUT_MS,
+              'getSession(recover)'
+            );
+            s = fromClient.session;
+          } catch (e) {
+            console.error('getSession(recover) failed:', e);
+            setUser(null);
+            setLoading(false);
+            return;
+          }
         }
 
         if (s?.user) {
           setLoading(true);
           try {
-            await loadProfile(s.user.id, s.user.email ?? null);
+            await withTimeout(
+              loadProfile(s.user.id, s.user.email ?? null),
+              PROFILE_LOAD_TIMEOUT_MS,
+              'loadProfile'
+            );
           } catch (e) {
             console.error('Supabase auth sync error:', e);
             setUser(null);
