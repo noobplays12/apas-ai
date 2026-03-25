@@ -1,5 +1,6 @@
 import type { VercelRequest, VercelResponse } from '@vercel/node';
 import { getSupabaseAdmin, getAuthedUserAndRole } from '../_supabaseAdmin';
+import { extractPdfText } from '../lib/extractPdfText';
 
 type ParsedRow = { full_name: string; roll_no: string };
 
@@ -124,15 +125,14 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
     if (buf.length > 6 * 1024 * 1024) {
       return res.status(413).json({ error: 'PDF too large (max ~6MB)' });
     }
-    const pdfParse = (await import('pdf-parse')).default as (b: Buffer) => Promise<{ text: string }>;
-    const parsed = await pdfParse(buf);
-    const rows = parseStudentLines(parsed.text || '');
+    const text = await extractPdfText(buf);
+    const rows = parseStudentLines(text || '');
 
     if (rows.length === 0) {
       await supabase.from('import_logs').insert({
         kind: 'section_pdf',
         message: 'No student rows parsed from PDF',
-        meta: { semesterId, sectionId, sample: (parsed.text || '').slice(0, 1200) },
+        meta: { semesterId, sectionId, sample: (text || '').slice(0, 1200) },
       });
       return res.status(200).json({
         ok: true,
@@ -141,7 +141,7 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
         warnings: [
           'No rows matched. Ensure the PDF has selectable text (not only scanned images). Try exporting PDF from Word with embedded text.',
         ],
-        textSample: (parsed.text || '').slice(0, 800),
+        textSample: (text || '').slice(0, 800),
       });
     }
 
