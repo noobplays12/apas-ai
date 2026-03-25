@@ -24,8 +24,9 @@ import AdminUploadSectionPdf from './pages/AdminUploadSectionPdf';
 import AdminUploadTimetable from './pages/AdminUploadTimetable';
 import AdminActiveSessions from './pages/AdminActiveSessions';
 
-const SESSION_TIMEOUT_MS = 15_000;
-const PROFILE_LOAD_TIMEOUT_MS = 20_000;
+/** Slow networks / cold Supabase need more headroom than 20s for auth + RLS + optional RPC/insert. */
+const SESSION_TIMEOUT_MS = 30_000;
+const PROFILE_LOAD_TIMEOUT_MS = 60_000;
 
 function formatAuthError(e: unknown): string {
   if (e && typeof e === 'object' && 'message' in e) return String((e as { message: string }).message);
@@ -117,16 +118,25 @@ export default function App() {
     };
 
     const loadProfile = async (userId: string, email: string | null) => {
-      const { data: authData, error: authErr } = await supabase.auth.getUser();
+      // Run getUser + profile select in parallel (sequential was ~2× latency on slow links).
+      const [{ data: authData, error: authErr }, profileFirst] = await Promise.all([
+        supabase.auth.getUser(),
+        supabase.from('profiles').select('*').eq('id', userId).maybeSingle(),
+      ]);
+
       if (authErr || !authData.user) {
         toast.error(`Session error: ${formatAuthError(authErr ?? 'no user')}`);
         setUser(null);
         return;
       }
       const uid = authData.user.id;
+      if (uid !== userId) {
+        toast.error('Session mismatch. Please sign in again.');
+        setUser(null);
+        return;
+      }
 
-      // Use * so older DBs without departmental columns still return a row.
-      let { data, error } = await supabase.from('profiles').select('*').eq('id', uid).maybeSingle();
+      let { data, error } = profileFirst;
 
       if (error) {
         toast.error(`Profile load: ${formatAuthError(error)}`);
