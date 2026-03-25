@@ -1,8 +1,6 @@
 import { useState, useEffect } from 'react';
 import * as React from 'react';
 import { useNavigate } from 'react-router-dom';
-import { seedDemoData, db } from '../firebase';
-import { doc, getDoc, collection, getDocs } from 'firebase/firestore';
 import { toast } from 'sonner';
 import { supabase } from '../supabaseClient';
 import { 
@@ -24,6 +22,7 @@ export default function Login() {
   const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
   const navigate = useNavigate();
+  const devBypassEnabled = import.meta.env.VITE_ENABLE_DEV_BYPASS === 'true';
 
   useEffect(() => {
     const timer = setTimeout(() => {
@@ -69,6 +68,41 @@ export default function Login() {
   };
 
   const handleBypass = async (role: 'admin' | 'teacher' | 'student') => {
+    if (!devBypassEnabled) {
+      toast.error('Local Test Mode is disabled.');
+      return;
+    }
+
+    // Prefer a real Supabase session so RLS-protected data (classes/subjects/sessions)
+    // works on Vercel without needing the user to type credentials.
+    const demoPassword = import.meta.env.VITE_DEMO_PASSWORD || 'Password@12345';
+    const demoEmails: Record<typeof role, string> = {
+      admin: 'noobplays304@gmail.com',
+      teacher: 'demo.teacher@iub.edu.pk',
+      student: 'demo.student1@gmail.com',
+    };
+
+    try {
+      setLoading(true);
+      // Clear mock user if any; we want Supabase auth to drive the app.
+      localStorage.removeItem('mock_user');
+
+      const { error } = await supabase.auth.signInWithPassword({
+        email: demoEmails[role],
+        password: demoPassword,
+      });
+      if (error) throw error;
+
+      toast.success('Test login enabled.');
+      navigate('/');
+      return;
+    } catch (e: any) {
+      console.warn('Dev bypass Supabase sign-in failed; falling back to mock user.', e);
+      toast.warning('Test login fallback: offline mock user (limited features).');
+    } finally {
+      setLoading(false);
+    }
+
     const profiles = {
       admin: { uid: 'mock_admin', name: 'Dev Admin', email: 'admin@dev.local', role: 'admin', createdAt: { seconds: Date.now()/1000, nanoseconds: 0 } },
       teacher: { uid: 'mock_teacher', name: 'Dev Teacher', email: 'teacher@dev.local', role: 'teacher', department: 'Computer Science', createdAt: { seconds: Date.now()/1000, nanoseconds: 0 } },
@@ -82,54 +116,6 @@ export default function Login() {
     
     localStorage.setItem('mock_user', JSON.stringify(profiles[role]));
     window.location.reload(); // Reload to trigger App.tsx useEffect
-  };
-
-  const handleSeed = async () => {
-    try {
-      toast.info('Seeding demo data...');
-      console.log('Calling seedDemoData...');
-      await seedDemoData();
-      toast.success('Demo data seeded successfully!');
-      // Give it a moment before reloading
-      setTimeout(() => {
-        window.location.reload();
-      }, 1000);
-    } catch (error: any) {
-      console.error('Seeding failed:', error);
-      toast.error('Seeding failed: ' + (error.message || 'Unknown error'));
-    }
-  };
-
-  const testFirestore = async () => {
-    try {
-      toast.info('Testing Firestore connectivity...');
-      const testDoc = doc(db, 'test', 'connection');
-      await getDoc(testDoc);
-      toast.success('Firestore is reachable!');
-    } catch (error: any) {
-      console.error('Firestore Test Error:', error);
-      if (error.code === 'permission-denied') {
-        toast.success('Firestore is reachable (Permission denied is expected for unauthenticated test).');
-      } else {
-        toast.error('Firestore connection failed: ' + error.message);
-      }
-    }
-  };
-
-  const testPermissions = async () => {
-    try {
-      toast.info('Testing public permissions...');
-      console.log('Testing public permissions...');
-      const [classesSnap, subjectsSnap] = await Promise.all([
-        getDocs(collection(db, 'classes')),
-        getDocs(collection(db, 'subjects'))
-      ]);
-      console.log('Permissions test successful!', { classes: classesSnap.size, subjects: subjectsSnap.size });
-      toast.success(`Permissions test successful! Found ${classesSnap.size} classes and ${subjectsSnap.size} subjects.`);
-    } catch (error: any) {
-      console.error('Permission test failed:', error);
-      toast.error('Permission test failed: ' + error.message);
-    }
   };
 
   const clearStorage = () => {
@@ -290,21 +276,43 @@ export default function Login() {
                 <Key size={18} />
                 <span className="text-xs font-black uppercase tracking-widest">Local Test Mode</span>
               </div>
-              <span className="text-[10px] font-bold text-orange-500">Bypass Auth</span>
+              <span className={`text-[10px] font-bold ${devBypassEnabled ? 'text-green-600' : 'text-gray-400'}`}>
+                {devBypassEnabled ? 'Enabled' : 'Disabled'}
+              </span>
             </div>
             <div className="grid grid-cols-3 gap-3">
-              <button onClick={() => handleBypass('admin')} className="rounded-lg bg-white p-2 text-[10px] font-bold text-gray-600 shadow-sm transition-all hover:bg-orange-50 hover:text-orange-600">DEV ADMIN</button>
-              <button onClick={() => handleBypass('teacher')} className="rounded-lg bg-white p-2 text-[10px] font-bold text-gray-600 shadow-sm transition-all hover:bg-orange-50 hover:text-orange-600">DEV TEACHER</button>
-              <button onClick={() => handleBypass('student')} className="rounded-lg bg-white p-2 text-[10px] font-bold text-gray-600 shadow-sm transition-all hover:bg-orange-50 hover:text-orange-600">DEV STUDENT</button>
+              <button
+                disabled={!devBypassEnabled}
+                onClick={() => handleBypass('admin')}
+                className="rounded-lg bg-white p-2 text-[10px] font-bold text-gray-600 shadow-sm transition-all hover:bg-orange-50 hover:text-orange-600 disabled:opacity-50 disabled:hover:bg-white disabled:hover:text-gray-600"
+              >
+                DEV ADMIN
+              </button>
+              <button
+                disabled={!devBypassEnabled}
+                onClick={() => handleBypass('teacher')}
+                className="rounded-lg bg-white p-2 text-[10px] font-bold text-gray-600 shadow-sm transition-all hover:bg-orange-50 hover:text-orange-600 disabled:opacity-50 disabled:hover:bg-white disabled:hover:text-gray-600"
+              >
+                DEV TEACHER
+              </button>
+              <button
+                disabled={!devBypassEnabled}
+                onClick={() => handleBypass('student')}
+                className="rounded-lg bg-white p-2 text-[10px] font-bold text-gray-600 shadow-sm transition-all hover:bg-orange-50 hover:text-orange-600 disabled:opacity-50 disabled:hover:bg-white disabled:hover:text-gray-600"
+              >
+                DEV STUDENT
+              </button>
             </div>
             <div className="mt-4 flex flex-wrap gap-2">
-              <button onClick={testFirestore} className="flex-1 rounded-lg bg-blue-50 p-2 text-[10px] font-bold text-blue-600 transition-all hover:bg-blue-100">TEST FIRESTORE</button>
-              <button onClick={testPermissions} className="flex-1 rounded-lg bg-indigo-50 p-2 text-[10px] font-bold text-indigo-600 transition-all hover:bg-indigo-100">TEST PERMISSIONS</button>
-              <button onClick={handleSeed} className="flex-1 rounded-lg bg-orange-50 p-2 text-[10px] font-bold text-orange-600 transition-all hover:bg-orange-100">SEED DATA</button>
-              <button onClick={clearStorage} className="flex-1 rounded-lg bg-red-50 p-2 text-[10px] font-bold text-red-600 transition-all hover:bg-red-100">CLEAR STORAGE</button>
+              <button
+                onClick={clearStorage}
+                className="flex-1 rounded-lg bg-red-50 p-2 text-[10px] font-bold text-red-600 transition-all hover:bg-red-100"
+              >
+                CLEAR STORAGE
+              </button>
             </div>
             <p className="mt-3 text-[10px] text-gray-400">
-              Use these buttons to test the app <b>without</b> Firebase setup.
+              Set <b>VITE_ENABLE_DEV_BYPASS=true</b> in <b>.env.local</b> to enable one-click test login.
             </p>
           </div>
 
