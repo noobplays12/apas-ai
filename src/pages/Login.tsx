@@ -41,8 +41,15 @@ export default function Login() {
 
     setLoading(true);
     try {
-      const { error } = await supabase.auth.signInWithPassword({ email, password });
+      const { data: signData, error } = await supabase.auth.signInWithPassword({ email, password });
       if (error) throw error;
+      const session = signData.session ?? (await supabase.auth.getSession()).data.session;
+      if (!session) {
+        toast.error(
+          'No active session. If email confirmation is required, confirm your email in Supabase Auth settings or your inbox.'
+        );
+        return;
+      }
       toast.success('Logged in successfully!');
       navigate('/');
     } catch (error: any) {

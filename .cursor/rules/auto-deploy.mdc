@@ -1,0 +1,14 @@
+---
+description: After code changes, commit and push to trigger production deploy (Vercel).
+alwaysApply: true
+---
+
+# Deploy after substantive changes
+
+When you finish **substantive** edits to this repo (app code, APIs, config, migrations):
+
+1. **Commit and push** to `origin` / default branch (`main`) so **Vercel** picks up the deployment. Do not end the task with only local edits if the user expects the live site to update.
+2. Use a short, clear commit message describing what changed.
+3. If you added or changed **Supabase SQL** under `supabase/migrations/`, remind the user that the **database** must be updated separately (Supabase SQL editor or `supabase db push`), since deploy only ships the app.
+
+Skip auto-push only when the user explicitly asked not to commit, or when there is nothing to commit.

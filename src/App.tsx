@@ -73,15 +73,32 @@ export default function App() {
     }
 
     const loadProfile = async (userId: string, email: string | null) => {
-      const { data, error } = await supabase
+      let { data, error } = await supabase
         .from('profiles')
         .select('id,name,email,role,roll_no,class_id,semester_id,section_id,device_id,created_at')
         .eq('id', userId)
         .maybeSingle();
 
       if (error) throw error;
+
+      // Session exists but no profile row (trigger missed / user created via dashboard). Create via RPC.
       if (!data) {
-        // Trigger should create this on signup; if it doesn't exist yet, treat as logged-out UX.
+        const { error: rpcErr } = await supabase.rpc('ensure_my_profile');
+        if (rpcErr) {
+          console.error('ensure_my_profile failed:', rpcErr);
+          setUser(null);
+          return;
+        }
+        const second = await supabase
+          .from('profiles')
+          .select('id,name,email,role,roll_no,class_id,semester_id,section_id,device_id,created_at')
+          .eq('id', userId)
+          .maybeSingle();
+        if (second.error) throw second.error;
+        data = second.data;
+      }
+
+      if (!data) {
         setUser(null);
         return;
       }
@@ -116,10 +133,18 @@ export default function App() {
       setLoading(false);
 
       const { data: sub } = supabase.auth.onAuthStateChange(async (_event, session) => {
-        if (session?.user) {
+        // Callback may pass null while a session still exists (e.g. INITIAL_SESSION after a storage
+        // read error in GoTrueClient._emitInitialSession). Re-read from the client before clearing.
+        let s = session;
+        if (!s?.user) {
+          const { data: fromClient } = await supabase.auth.getSession();
+          s = fromClient.session;
+        }
+
+        if (s?.user) {
           setLoading(true);
           try {
-            await loadProfile(session.user.id, session.user.email ?? null);
+            await loadProfile(s.user.id, s.user.email ?? null);
           } catch (e) {
             console.error('Supabase auth sync error:', e);
             setUser(null);
