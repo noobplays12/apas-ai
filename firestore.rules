@@ -1,0 +1,150 @@
+rules_version = '2';
+service cloud.firestore {
+  match /databases/{database}/documents {
+
+    // ===============================================================
+    // Assumed Data Model
+    // ===============================================================
+    //
+    // Collection: users
+    // Fields:
+    //   - uid: string (required)
+    //   - name: string (required)
+    //   - email: string (required)
+    //   - role: string (enum: ['student', 'teacher', 'admin'])
+    //   - rollNo: string (optional)
+    //   - classId: string (optional)
+    //   - deviceId: string (optional)
+    //
+    // Collection: classes
+    // Fields:
+    //   - name: string (required)
+    //   - section: string (optional)
+    //
+    // Collection: subjects
+    // Fields:
+    //   - name: string (required)
+    //   - code: string (optional)
+    //
+    // Collection: sessions
+    // Fields:
+    //   - classId: string (required)
+    //   - subjectId: string (required)
+    //   - teacherId: string (required)
+    //   - startTime: timestamp (required)
+    //   - endTime: timestamp (required)
+    //   - isActive: bool (required)
+    //   - location: map (optional)
+    //   - wifiSSID: string (optional)
+    //
+    // Collection: attendance
+    // Fields:
+    //   - studentId: string (required)
+    //   - sessionId: string (required)
+    //   - timestamp: timestamp (required)
+    //   - status: string (enum: ['present', 'absent'])
+    //   - deviceId: string (required)
+    //   - location: map (optional)
+    //   - wifiSSID: string (optional)
+    //
+    // ===============================================================
+
+    // ===============================================================
+    // Helper Functions
+    // ===============================================================
+
+    function isAuthenticated() {
+      return request.auth != null;
+    }
+
+    function isOwner(userId) {
+      return isAuthenticated() && request.auth.uid == userId;
+    }
+
+    // Safely get user data, returning null if document doesn't exist
+    function getUserData() {
+      let path = /databases/$(database)/documents/users/$(request.auth.uid);
+      return exists(path) ? get(path).data : null;
+    }
+
+    function isAdmin() {
+      return isAuthenticated() && (
+        request.auth.token.email == "noobplays304@gmail.com" ||
+        (exists(/databases/$(database)/documents/users/$(request.auth.uid)) && 
+         get(/databases/$(database)/documents/users/$(request.auth.uid)).data.role == 'admin')
+      );
+    }
+
+    function isTeacher() {
+      return isAuthenticated() && 
+             exists(/databases/$(database)/documents/users/$(request.auth.uid)) && 
+             get(/databases/$(database)/documents/users/$(request.auth.uid)).data.role == 'teacher';
+    }
+
+    function isStudent() {
+      return isAuthenticated() && 
+             exists(/databases/$(database)/documents/users/$(request.auth.uid)) && 
+             get(/databases/$(database)/documents/users/$(request.auth.uid)).data.role == 'student';
+    }
+
+    function hasRequiredFields(fields) {
+      return request.resource.data.keys().hasAll(fields);
+    }
+
+    function hasOnlyAllowedFields(fields) {
+      return request.resource.data.keys().hasOnly(fields);
+    }
+
+    // ===============================================================
+    // Domain Validators
+    // ===============================================================
+
+    function isValidUser(data) {
+      return data.name is string && data.name.size() > 0 && data.name.size() < 100 &&
+             data.email is string && (data.email == "" || data.email.matches("^[a-zA-Z0-9._%+-]+@[a-zA-Z0-9.-]+\\.[a-zA-Z]{2,}$")) &&
+             data.role in ['student', 'teacher', 'admin'];
+    }
+
+    function isValidSession(data) {
+      return data.classId is string &&
+             data.subjectId is string &&
+             data.teacherId is string &&
+             data.startTime is timestamp &&
+             data.endTime is timestamp &&
+             data.isActive is bool;
+    }
+
+    function isValidAttendance(data) {
+      return data.studentId is string &&
+             data.sessionId is string &&
+             data.timestamp is timestamp &&
+             data.status in ['present', 'absent'] &&
+             data.deviceId is string;
+    }
+
+    // ===============================================================
+    // Rules
+    // ===============================================================
+
+    // TEMPORARY: Allow public read/write for seeding and initial setup
+    // These should be hardened once seeding is confirmed working
+    match /users/{userId} {
+      allow read, write: if true;
+    }
+    match /classes/{classId} {
+      allow read, write: if true;
+    }
+    match /subjects/{subjectId} {
+      allow read, write: if true;
+    }
+    match /sessions/{sessionId} {
+      allow read, write: if true;
+    }
+    match /attendance/{attendanceId} {
+      allow read, write: if true;
+    }
+    match /test/{docId} {
+      allow read: if true;
+    }
+  }
+}

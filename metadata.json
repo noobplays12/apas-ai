@@ -1,0 +1,5 @@
+{
+  "name": "Smart Anti-Proxy Attendance System",
+  "description": "A secure, location-aware attendance management system for universities with multi-layer anti-proxy validation.",
+  "requestFramePermissions": ["geolocation"]
+}
