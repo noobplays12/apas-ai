@@ -225,9 +225,14 @@ export default function App() {
         setLoading(false);
       }
 
-      const { data: sub } = supabase.auth.onAuthStateChange(async (_event, session) => {
-        // Callback may pass null while a session still exists (e.g. INITIAL_SESSION after a storage
-        // read error in GoTrueClient._emitInitialSession). Re-read from the client before clearing.
+      const { data: sub } = supabase.auth.onAuthStateChange(async (event, session) => {
+        // Token refresh runs on a timer and when the tab becomes visible — must not block the UI.
+        if (event === 'TOKEN_REFRESHED') return;
+
+        // Emitted once when the listener is registered; we already ran getSession + loadProfile above.
+        if (event === 'INITIAL_SESSION') return;
+
+        // Callback may pass null while a session still exists. Re-read from the client before clearing.
         let s = session;
         if (!s?.user) {
           try {
@@ -240,13 +245,11 @@ export default function App() {
           } catch (e) {
             console.error('getSession(recover) failed:', e);
             setUser(null);
-            setLoading(false);
             return;
           }
         }
 
         if (s?.user) {
-          setLoading(true);
           try {
             await withTimeout(
               loadProfile(s.user.id, s.user.email ?? null),
@@ -257,12 +260,9 @@ export default function App() {
             console.error('Supabase auth sync error:', e);
             toast.error(`Auth: ${formatAuthError(e)}`);
             setUser(null);
-          } finally {
-            setLoading(false);
           }
         } else {
           setUser(null);
-          setLoading(false);
         }
       });
       unsub = () => sub.subscription.unsubscribe();
