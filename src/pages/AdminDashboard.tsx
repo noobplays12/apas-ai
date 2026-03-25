@@ -76,8 +76,8 @@ export default function AdminDashboard({ user: _user }: AdminDashboardProps) {
 
   const importLinks = [
     {
-      title: 'Upload section roster (PDF)',
-      desc: 'Paste student lists from attendance sheets (e.g. Roll No + Name).',
+      title: 'Upload section roster (Excel/CSV)',
+      desc: 'Upload a roster sheet with headers `Roll No` and `Name`.',
       path: '/admin/upload-sections',
       icon: Upload,
       color: 'bg-[#003399]',

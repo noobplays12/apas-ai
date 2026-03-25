@@ -139,7 +139,7 @@ export default function Layout({ user }: LayoutProps) {
     { name: 'Student Management', path: '/students', icon: GraduationCap, roles: ['admin'] },
     { name: 'Teacher Management', path: '/teachers', icon: Users, roles: ['admin'] },
     { name: 'Class Management', path: '/classes', icon: BookOpen, roles: ['admin'] },
-    { name: 'Upload section PDF', path: '/admin/upload-sections', icon: Upload, roles: ['admin'] },
+    { name: 'Upload section Excel/CSV', path: '/admin/upload-sections', icon: Upload, roles: ['admin'] },
     { name: 'Upload timetable', path: '/admin/upload-timetable', icon: FileSpreadsheet, roles: ['admin'] },
     { name: 'Active sessions', path: '/admin/active-sessions', icon: Activity, roles: ['admin'] },
   ];

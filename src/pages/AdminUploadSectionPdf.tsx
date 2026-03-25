@@ -107,21 +107,25 @@ export default function AdminUploadSectionPdf({ user: _user }: Props) {
     e.preventDefault();
     setDrag(false);
     const f = e.dataTransfer.files?.[0];
-    if (f && f.type === 'application/pdf') setFile(f);
-    else toast.error('Please drop a PDF file');
+    if (!f) return;
+    const lower = f.name.toLowerCase();
+    if (lower.endsWith('.xlsx') || lower.endsWith('.xls') || lower.endsWith('.csv')) setFile(f);
+    else toast.error('Please drop an Excel (.xlsx/.xls) or CSV (.csv) file');
   };
 
   const runUpload = async () => {
     if (!file || !semesterId || !sectionId) {
-      toast.error('Select semester, section, and a PDF');
+      toast.error('Select semester, section, and an Excel/CSV file');
       return;
     }
 
     // Vercel request body limits can trigger FUNCTION_INVOCATION_FAILED before the server can respond.
-    // Since we send the PDF as base64 inside JSON, keep file size small.
-    const MAX_PDF_BYTES = 3_000_000; // ~3MB (base64 inflates payload further)
-    if (file.size > MAX_PDF_BYTES) {
-      toast.error(`PDF is too large for upload. Please use a PDF under ~3MB. Current: ${(file.size / (1024 * 1024)).toFixed(2)}MB`);
+    // Since we send the Excel/CSV file as base64 inside JSON, keep file size small.
+    const MAX_FILE_BYTES = 3_000_000; // ~3MB (base64 inflates payload further)
+    if (file.size > MAX_FILE_BYTES) {
+      toast.error(
+        `File is too large for upload. Please use an Excel/CSV under ~3MB. Current: ${(file.size / (1024 * 1024)).toFixed(2)}MB`
+      );
       return;
     }
 
@@ -130,7 +134,7 @@ export default function AdminUploadSectionPdf({ user: _user }: Props) {
     setLogs([]);
     try {
       const buf = await file.arrayBuffer();
-      const pdfBase64 = bufferToBase64(buf);
+      const fileBase64 = bufferToBase64(buf);
       setProgress(40);
       const {
         data: { session },
@@ -138,13 +142,13 @@ export default function AdminUploadSectionPdf({ user: _user }: Props) {
       const token = session?.access_token;
       if (!token) throw new Error('Not signed in');
 
-      const res = await fetch('/api/admin/parse-section-pdf', {
+      const res = await fetch('/api/admin/parse-section-excel', {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json',
           Authorization: `Bearer ${token}`,
         },
-        body: JSON.stringify({ pdfBase64, semesterId, sectionId }),
+        body: JSON.stringify({ fileBase64, fileName: file.name, semesterId, sectionId }),
       });
       setProgress(90);
       const resText = await res.text();
@@ -172,7 +176,7 @@ export default function AdminUploadSectionPdf({ user: _user }: Props) {
         `Skipped: ${json.skipped ?? 0}`,
         ...(json.warnings || []).slice(0, 20),
       ]);
-      toast.success('PDF processed');
+      toast.success('Excel/CSV processed');
     } catch (e: any) {
       toast.error(e.message || 'Failed');
       setLogs([e.message || 'Error']);
@@ -185,10 +189,10 @@ export default function AdminUploadSectionPdf({ user: _user }: Props) {
   return (
     <div className="mx-auto max-w-3xl space-y-8 pb-12">
       <div>
-        <h1 className="text-3xl font-black text-gray-900">Upload section data (PDF)</h1>
+        <h1 className="text-3xl font-black text-gray-900">Upload section data (Excel/CSV)</h1>
         <p className="mt-2 text-gray-500">
-          IUB-style sheets: table with <strong>Roll No</strong> (e.g. F25BARIN1M01052) and <strong>Name</strong>. We scan text for
-          roll tokens and names. Scanned-image-only PDFs (no text) need OCR — export from Word with embedded text when possible.
+          Use an Excel/CSV roster with two columns: <strong>Roll No</strong> (e.g. F25BARIN1M01052) and <strong>Name</strong> (student full name).
+          The first row must be headers.
         </p>
       </div>
 
@@ -196,8 +200,8 @@ export default function AdminUploadSectionPdf({ user: _user }: Props) {
         <div className="flex gap-3 rounded-2xl border border-amber-200 bg-amber-50 p-4 text-amber-950">
           <AlertTriangle className="h-5 w-5 shrink-0" />
           <p className="text-sm font-bold">
-            Dev bypass has no API token. Sign out and log in with your <strong>admin email + password</strong> to process PDFs on
-            Vercel.
+            Dev bypass has no API token. Sign out and log in with your <strong>admin email + password</strong> to process Excel/CSV
+            rosters on Vercel.
           </p>
         </div>
       )}
@@ -268,10 +272,10 @@ export default function AdminUploadSectionPdf({ user: _user }: Props) {
         )}
       >
         <Upload className="mx-auto mb-4 h-12 w-12 text-gray-400" />
-        <p className="font-bold text-gray-700">Drag & drop PDF here</p>
+        <p className="font-bold text-gray-700">Drag & drop Excel/CSV here</p>
         <input
           type="file"
-          accept="application/pdf"
+          accept="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet, application/vnd.ms-excel, text/csv, .xlsx, .xls, .csv"
           className="mt-4 block mx-auto text-sm"
           onChange={(e) => setFile(e.target.files?.[0] ?? null)}
         />
@@ -296,7 +300,7 @@ export default function AdminUploadSectionPdf({ user: _user }: Props) {
         className="flex w-full items-center justify-center gap-2 rounded-2xl bg-[#0A66FF] py-5 text-lg font-black text-white shadow-lg disabled:opacity-60"
       >
         {uploading ? <Loader2 className="animate-spin" size={24} /> : <Upload size={24} />}
-        Process PDF
+        Process Excel/CSV
       </button>
 
       {logs.length > 0 && (
@@ -318,7 +322,7 @@ export default function AdminUploadSectionPdf({ user: _user }: Props) {
 
       <p className="text-xs text-gray-400">
         Local dev: run <code className="rounded bg-gray-100 px-1">vercel dev</code> or deploy to Vercel so{' '}
-        <code className="rounded bg-gray-100 px-1">/api/admin/parse-section-pdf</code> is available.
+        <code className="rounded bg-gray-100 px-1">/api/admin/parse-section-excel</code> is available.
       </p>
     </div>
   );
