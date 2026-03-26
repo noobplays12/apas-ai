@@ -18,6 +18,13 @@ function looksLikeRollToken(t: string): boolean {
   return /^[A-Z0-9\-]+$/.test(s);
 }
 
+function parseBase64Payload(input: string): Buffer {
+  // Accept both raw base64 and data URLs like: data:...;base64,XXXX
+  const clean = String(input ?? '').trim();
+  const b64 = clean.includes(',') ? clean.slice(clean.indexOf(',') + 1) : clean;
+  return Buffer.from(b64, 'base64');
+}
+
 function parseCsvTwoCol(text: string): ParsedRow[] {
   // CSV must be simple (no commas inside Name). Recommended: use XLSX instead.
   const lines = text
@@ -68,7 +75,10 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
       return res.status(400).json({ error: 'Missing fileBase64 or sectionId' });
     }
 
-    const buf = Buffer.from(fileBase64, 'base64');
+    const buf = parseBase64Payload(fileBase64);
+    if (!buf.length) {
+      return res.status(400).json({ error: 'Invalid file payload (empty after base64 decode).' });
+    }
     if (buf.length > 6 * 1024 * 1024) {
       return res.status(413).json({ error: 'File too large (max ~6MB)' });
     }
@@ -79,7 +89,11 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
       rows = parseCsvTwoCol(buf.toString('utf8'));
     } else {
       const wb = XLSX.read(buf, { type: 'buffer' });
-      const sheet = wb.Sheets[wb.SheetNames[0]];
+      const firstSheetName = wb.SheetNames?.[0];
+      const sheet = firstSheetName ? wb.Sheets[firstSheetName] : undefined;
+      if (!sheet) {
+        return res.status(400).json({ error: 'Excel file has no readable worksheet.' });
+      }
       const data = XLSX.utils.sheet_to_json<Record<string, unknown>>(sheet, { defval: '' });
       if (!data.length) {
         return res.status(200).json({ ok: true, inserted: 0, skipped: 0, totalParsed: 0, warnings: ['Sheet is empty.'] });
@@ -87,13 +101,11 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
 
       // Detect columns from the first row keys
       const keys = Object.keys(data[0] ?? {});
-      const rollKey = keys.find((k) => {
-        const n = normalizeHeader(k);
-        return n === 'rollno' || n === 'roll' || n === 'roll_no';
-      });
+      const rollAliases = new Set(['rollno', 'rollnumber', 'roll', 'regno', 'registrationno']);
+      const nameAliases = new Set(['name', 'fullname', 'studentname']);
+      const rollKey = keys.find((k) => rollAliases.has(normalizeHeader(k)));
       const nameKey = keys.find((k) => {
-        const n = normalizeHeader(k);
-        return n === 'name' || n === 'fullname' || n === 'fullName' || n === 'studentname';
+        return nameAliases.has(normalizeHeader(k));
       });
 
       if (!rollKey || !nameKey) {
@@ -116,7 +128,7 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
         kind: 'section_pdf',
         message: 'No valid rows parsed from Excel/CSV',
         meta: { sectionId, semesterId: semesterId ?? null, fileName, count: 0 },
-      });
+      }).then(() => undefined);
       return res.status(200).json({
         ok: true,
         inserted: 0,
@@ -150,7 +162,7 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
       kind: 'section_pdf',
       message: `Upserted ${finalRows.length} section students (Excel/CSV)`,
       meta: { semesterId: semesterId ?? null, sectionId, parsed: finalRows.length },
-    });
+    }).then(() => undefined);
 
     return res.status(200).json({
       ok: true,

@@ -3,6 +3,10 @@
     "api/admin/parse-section-pdf.ts": {
       "maxDuration": 60,
       "memory": 1024
+    },
+    "api/admin/parse-section-excel.ts": {
+      "maxDuration": 60,
+      "memory": 1024
     }
   },
   "rewrites": [
