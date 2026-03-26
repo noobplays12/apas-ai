@@ -27,6 +27,7 @@ import AdminActiveSessions from './pages/AdminActiveSessions';
 /** Slow networks / cold Supabase need more headroom than 20s for auth + RLS + optional RPC/insert. */
 const SESSION_TIMEOUT_MS = 30_000;
 const PROFILE_LOAD_TIMEOUT_MS = 60_000;
+const PROFILE_LOAD_RETRY_DELAY_MS = 1_200;
 
 function formatAuthError(e: unknown): string {
   if (e && typeof e === 'object' && 'message' in e) return String((e as { message: string }).message);
@@ -46,6 +47,10 @@ function withTimeout<T>(promise: Promise<T>, ms: number, label: string): Promise
         reject(e);
       });
   });
+}
+
+async function sleep(ms: number): Promise<void> {
+  await new Promise((resolve) => setTimeout(resolve, ms));
 }
 
 export default function App() {
@@ -208,17 +213,23 @@ export default function App() {
       applyProfileRow(data as Record<string, unknown>, email ?? authData.user.email ?? null);
     };
 
+    const loadProfileWithRetry = async (userId: string, email: string | null) => {
+      try {
+        await withTimeout(loadProfile(userId, email), PROFILE_LOAD_TIMEOUT_MS, 'loadProfile');
+      } catch (firstErr) {
+        // Intermittent network stalls can trip a timeout; retry once before surfacing auth failure.
+        await sleep(PROFILE_LOAD_RETRY_DELAY_MS);
+        await withTimeout(loadProfile(userId, email), PROFILE_LOAD_TIMEOUT_MS, 'loadProfile(retry)');
+      }
+    };
+
     let unsub: (() => void) | undefined;
     (async () => {
       try {
         const { data } = await withTimeout(supabase.auth.getSession(), SESSION_TIMEOUT_MS, 'getSession');
         if (data.session?.user) {
           try {
-            await withTimeout(
-              loadProfile(data.session.user.id, data.session.user.email ?? null),
-              PROFILE_LOAD_TIMEOUT_MS,
-              'loadProfile'
-            );
+            await loadProfileWithRetry(data.session.user.id, data.session.user.email ?? null);
           } catch (e) {
             console.error('Supabase auth sync error:', e);
             toast.error(`Auth: ${formatAuthError(e)}`);
@@ -261,11 +272,7 @@ export default function App() {
 
         if (s?.user) {
           try {
-            await withTimeout(
-              loadProfile(s.user.id, s.user.email ?? null),
-              PROFILE_LOAD_TIMEOUT_MS,
-              'loadProfile'
-            );
+            await loadProfileWithRetry(s.user.id, s.user.email ?? null);
           } catch (e) {
             console.error('Supabase auth sync error:', e);
             toast.error(`Auth: ${formatAuthError(e)}`);
