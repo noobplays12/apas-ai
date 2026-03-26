@@ -1,6 +1,6 @@
 import type { VercelRequest, VercelResponse } from '@vercel/node';
 import * as XLSX from 'xlsx';
-import { getSupabaseAdmin, getAuthedUserAndRole } from '../_supabaseAdmin';
+import { getSupabaseAdmin, getAuthedUserAndRole } from '../_supabaseAdmin.js';
 
 type ParsedRow = { full_name: string; roll_no: string };
 

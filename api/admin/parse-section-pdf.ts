@@ -1,5 +1,5 @@
 import type { VercelRequest, VercelResponse } from '@vercel/node';
-import { getSupabaseAdmin, getAuthedUserAndRole } from '../_supabaseAdmin';
+import { getSupabaseAdmin, getAuthedUserAndRole } from '../_supabaseAdmin.js';
 import { extractPdfText } from '../lib/extractPdfText';
 
 type ParsedRow = { full_name: string; roll_no: string };

@@ -1,6 +1,6 @@
 import type { VercelRequest, VercelResponse } from '@vercel/node';
 import * as XLSX from 'xlsx';
-import { getSupabaseAdmin, getAuthedUserAndRole } from '../_supabaseAdmin';
+import { getSupabaseAdmin, getAuthedUserAndRole } from '../_supabaseAdmin.js';
 
 function getCell(r: Record<string, unknown>, ...aliases: string[]): string {
   const norm = (s: string) => s.replace(/\s+/g, ' ').trim().toLowerCase();
