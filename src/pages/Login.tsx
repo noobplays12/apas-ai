@@ -24,6 +24,12 @@ export default function Login() {
   const navigate = useNavigate();
   const devBypassEnabled = import.meta.env.VITE_ENABLE_DEV_BYPASS === 'true';
 
+  const normalizeRoll = (raw: string): string =>
+    raw
+      .trim()
+      .toUpperCase()
+      .replace(/\s+/g, '');
+
   useEffect(() => {
     const timer = setTimeout(() => {
       setFingerprintStatus('Device Fingerprint Captured Successfully');
@@ -41,7 +47,42 @@ export default function Login() {
 
     setLoading(true);
     try {
-      const { data: signData, error } = await supabase.auth.signInWithPassword({ email, password });
+      const identifier = email.trim();
+      let emailForAuth = identifier;
+
+      // User-facing login accepts roll number (e.g. F25BARIN1M01272) + password.
+      if (!identifier.includes('@')) {
+        const rollNo = normalizeRoll(identifier);
+        // Fast path for system-generated student accounts.
+        emailForAuth = `${rollNo.toLowerCase().replace(/[^a-z0-9]+/g, '')}@student.apas.local`;
+      }
+
+      let { data: signData, error } = await supabase.auth.signInWithPassword({
+        email: emailForAuth,
+        password,
+      });
+
+      // Fallback: resolve roll number -> profile email, then try sign-in once more.
+      if (error && !identifier.includes('@')) {
+        const rollNo = normalizeRoll(identifier);
+        const resolveRes = await fetch('/api/auth/resolve-roll-email', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ rollNo }),
+        });
+        if (resolveRes.ok) {
+          const json = (await resolveRes.json()) as { email?: string };
+          if (json.email) {
+            const retry = await supabase.auth.signInWithPassword({
+              email: json.email,
+              password,
+            });
+            signData = retry.data;
+            error = retry.error;
+          }
+        }
+      }
+
       if (error) throw error;
       const session = signData.session ?? (await supabase.auth.getSession()).data.session;
       if (!session) {
