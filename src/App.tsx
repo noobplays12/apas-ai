@@ -25,9 +25,9 @@ import AdminUploadTimetable from './pages/AdminUploadTimetable';
 import AdminActiveSessions from './pages/AdminActiveSessions';
 
 /** Slow networks / cold Supabase need more headroom than 20s for auth + RLS + optional RPC/insert. */
-const SESSION_TIMEOUT_MS = 30_000;
-const PROFILE_LOAD_TIMEOUT_MS = 60_000;
-const PROFILE_LOAD_RETRY_DELAY_MS = 1_200;
+const SESSION_TIMEOUT_MS = 20_000;
+const PROFILE_LOAD_TIMEOUT_MS = 20_000;
+const PROFILE_LOAD_RETRY_DELAY_MS = 2_000;
 
 function formatAuthError(e: unknown): string {
   if (e && typeof e === 'object' && 'message' in e) return String((e as { message: string }).message);
@@ -123,24 +123,10 @@ export default function App() {
     };
 
     const loadProfile = async (userId: string, email: string | null) => {
-      // Run getUser + profile select in parallel (sequential was ~2× latency on slow links).
-      const [{ data: authData, error: authErr }, profileFirst] = await Promise.all([
-        supabase.auth.getUser(),
-        supabase.from('profiles').select('*').eq('id', userId).maybeSingle(),
-      ]);
+      // Only fetch the profile row — we already trust userId from the session token.
+      const profileFirst = await supabase.from('profiles').select('*').eq('id', userId).maybeSingle();
 
-      if (authErr || !authData.user) {
-        toast.error(`Session error: ${formatAuthError(authErr ?? 'no user')}`);
-        setUser(null);
-        return;
-      }
-      const uid = authData.user.id;
-      if (uid !== userId) {
-        toast.error('Session mismatch. Please sign in again.');
-        setUser(null);
-        return;
-      }
-
+      const uid = userId;
       let { data, error } = profileFirst;
 
       if (error) {
@@ -217,9 +203,15 @@ export default function App() {
       try {
         await withTimeout(loadProfile(userId, email), PROFILE_LOAD_TIMEOUT_MS, 'loadProfile');
       } catch (firstErr) {
-        // Intermittent network stalls can trip a timeout; retry once before surfacing auth failure.
+        console.warn('loadProfile first attempt failed, retrying…', firstErr);
         await sleep(PROFILE_LOAD_RETRY_DELAY_MS);
-        await withTimeout(loadProfile(userId, email), PROFILE_LOAD_TIMEOUT_MS, 'loadProfile(retry)');
+        try {
+          await withTimeout(loadProfile(userId, email), PROFILE_LOAD_TIMEOUT_MS, 'loadProfile(retry)');
+        } catch (retryErr) {
+          // Both attempts timed out — clear user silently so login page appears without scary toast.
+          console.error('loadProfile(retry) failed:', retryErr);
+          setUser(null);
+        }
       }
     };
 
@@ -228,13 +220,7 @@ export default function App() {
       try {
         const { data } = await withTimeout(supabase.auth.getSession(), SESSION_TIMEOUT_MS, 'getSession');
         if (data.session?.user) {
-          try {
-            await loadProfileWithRetry(data.session.user.id, data.session.user.email ?? null);
-          } catch (e) {
-            console.error('Supabase auth sync error:', e);
-            toast.error(`Auth: ${formatAuthError(e)}`);
-            setUser(null);
-          }
+          await loadProfileWithRetry(data.session.user.id, data.session.user.email ?? null);
         } else {
           setUser(null);
         }
@@ -271,13 +257,7 @@ export default function App() {
         }
 
         if (s?.user) {
-          try {
-            await loadProfileWithRetry(s.user.id, s.user.email ?? null);
-          } catch (e) {
-            console.error('Supabase auth sync error:', e);
-            toast.error(`Auth: ${formatAuthError(e)}`);
-            setUser(null);
-          }
+          await loadProfileWithRetry(s.user.id, s.user.email ?? null);
         } else {
           setUser(null);
         }

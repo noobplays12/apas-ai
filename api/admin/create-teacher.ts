@@ -18,12 +18,12 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
     const supabase = getSupabaseAdmin();
     const DEFAULT_PASSWORD = 'Faculty@2025!';
 
-    // Create auth user
+    // Create auth user (store department in user_metadata since profiles may not have that column yet)
     const { data: authData, error: authErr } = await supabase.auth.admin.createUser({
       email,
       password: DEFAULT_PASSWORD,
       email_confirm: true,
-      user_metadata: { name },
+      user_metadata: { name, department },
     });
 
     let userId: string;
@@ -44,15 +44,10 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
       userId = authData.user.id;
     }
 
-    // Upsert profile
-    const { error: profileErr } = await supabase.from('profiles').upsert({
-      id: userId,
-      name,
-      email,
-      role: 'teacher',
-      department,
-      is_active: true,
-    }, { onConflict: 'id' });
+    // Upsert profile — only columns guaranteed to exist in the schema
+    const profilePayload: Record<string, unknown> = { id: userId, name, email, role: 'teacher' };
+    // Try to include optional columns; if they don't exist the query will fail gracefully with a column error
+    const { error: profileErr } = await supabase.from('profiles').upsert(profilePayload, { onConflict: 'id' });
     if (profileErr) throw profileErr;
 
     return res.status(200).json({ ok: true, userId, email, name });

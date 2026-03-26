@@ -26,7 +26,7 @@ export default function TeacherManagement({ user: _user }: TeacherManagementProp
 
   const fetchTeachers = async () => {
     setLoading(true);
-    const { data, error } = await supabase.from('profiles').select('id,name,email,department,is_active,created_at').eq('role', 'teacher').order('name');
+    const { data, error } = await supabase.from('profiles').select('id,name,email,created_at').eq('role', 'teacher').order('name');
     if (error) toast.error('Failed to load faculty: ' + error.message);
     else setTeachers(data ?? []);
     setLoading(false);
@@ -36,14 +36,20 @@ export default function TeacherManagement({ user: _user }: TeacherManagementProp
 
   const filtered = teachers.filter(t => {
     const q = search.toLowerCase();
-    return (t.name ?? '').toLowerCase().includes(q) || (t.email ?? '').toLowerCase().includes(q) || (t.department ?? '').toLowerCase().includes(q);
+    const dept = (t.department ?? t.metadata_department ?? '').toLowerCase();
+    return (t.name ?? '').toLowerCase().includes(q) || (t.email ?? '').toLowerCase().includes(q) || dept.includes(q);
   });
 
   const toggleActive = async (teacher: any) => {
-    const newVal = !(teacher.is_active ?? true);
-    const { error } = await supabase.from('profiles').update({ is_active: newVal }).eq('id', teacher.id);
-    if (error) { toast.error('Failed to update status'); return; }
-    setTeachers(ts => ts.map(t => t.id === teacher.id ? { ...t, is_active: newVal } : t));
+    const newVal = !(teacher._active ?? true);
+    const token = await getToken();
+    const res = await fetch('/api/admin/toggle-teacher-active', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${token}` },
+      body: JSON.stringify({ teacherId: teacher.id, active: newVal }),
+    });
+    if (!res.ok) { toast.error('Failed to update status'); return; }
+    setTeachers(ts => ts.map(t => t.id === teacher.id ? { ...t, _active: newVal } : t));
     toast.success(`${teacher.name} marked ${newVal ? 'Active' : 'Inactive'}`);
   };
 
@@ -52,35 +58,24 @@ export default function TeacherManagement({ user: _user }: TeacherManagementProp
     return data.session?.access_token ?? null;
   };
 
-  const createTeacherAccount = async (name: string, email: string, department: string) => {
-    const password = 'Faculty@2025!';
-    const { data: created, error: createErr } = await supabase.auth.admin?.createUser?.({
-      email: email.toLowerCase().trim(),
-      password,
-      email_confirm: true,
-      user_metadata: { name: name.trim() },
-    }) as any ?? {};
-
-    const supaAdmin = (supabase as any)._supabaseAdmin;
-    let userId: string | null = null;
-
-    const res1 = await fetch('/api/admin/create-teacher', {
+  const callCreateTeacher = async (name: string, email: string, department: string) => {
+    const res = await fetch('/api/admin/create-teacher', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${await getToken()}` },
       body: JSON.stringify({ name: name.trim(), email: email.toLowerCase().trim(), department: department.trim() }),
     });
-    if (!res1.ok) {
-      const j = await res1.json().catch(() => ({}));
-      throw new Error(j.error ?? `Server ${res1.status}`);
+    if (!res.ok) {
+      const j = await res.json().catch(() => ({}));
+      throw new Error(j.error ?? `Server ${res.status}`);
     }
-    return res1.json();
+    return res.json();
   };
 
   const handleAddSingle = async () => {
     if (!singleForm.name.trim() || !singleForm.email.trim()) { toast.error('Name and email are required'); return; }
     setSaving(true);
     try {
-      await createTeacherAccount(singleForm.name, singleForm.email, singleForm.department);
+      await callCreateTeacher(singleForm.name, singleForm.email, singleForm.department);
       toast.success(`Faculty ${singleForm.name} added! Default password: Faculty@2025!`);
       setShowModal(false); setSingleForm({ name: '', email: '', department: '' });
       fetchTeachers();
@@ -171,12 +166,13 @@ export default function TeacherManagement({ user: _user }: TeacherManagementProp
               </thead>
               <tbody className="divide-y divide-gray-50">
                 {filtered.map(t => {
-                  const isActive = t.is_active !== false;
+                  const isActive = t._active !== false;
+                  const dept = t.department ?? t.metadata_department ?? null;
                   return (
                     <tr key={t.id} className="transition-all hover:bg-gray-50/60">
                       <td className="px-6 py-4 text-sm font-bold text-gray-900">{t.name}</td>
                       <td className="px-6 py-4 text-sm font-medium text-gray-500">{t.email}</td>
-                      <td className="px-6 py-4 text-sm font-bold text-[#003399]">{t.department || 'General'}</td>
+                      <td className="px-6 py-4 text-sm font-bold text-[#003399]">{dept || <span className="text-gray-300">—</span>}</td>
                       <td className="px-6 py-4">
                         <span className={`rounded-lg px-3 py-1 text-[10px] font-black uppercase tracking-widest ${isActive ? 'bg-green-50 text-green-600' : 'bg-red-50 text-red-600'}`}>
                           {isActive ? 'Active' : 'Inactive'}
