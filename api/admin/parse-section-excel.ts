@@ -1,6 +1,7 @@
 import type { VercelRequest, VercelResponse } from '@vercel/node';
 import * as XLSX from 'xlsx';
 import { getSupabaseAdmin, getAuthedUserAndRole } from '../_supabaseAdmin.js';
+import { ensureStudentLogins } from '../lib/studentAuthSync.js';
 
 type ParsedRow = { full_name: string; roll_no: string };
 
@@ -164,12 +165,19 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
       meta: { semesterId: semesterId ?? null, sectionId, parsed: finalRows.length },
     }).then(() => undefined);
 
+    const syncResult = await ensureStudentLogins(
+      supabase as any,
+      finalRows.map((r) => ({ roll_no: r.roll_no, full_name: r.full_name, section_id: sectionId })),
+      semesterId ?? null
+    );
+
     return res.status(200).json({
       ok: true,
       inserted: finalRows.length,
       skipped: 0,
       totalParsed: rows.length,
-      warnings: [],
+      warnings: syncResult.failed ? [`Failed to create ${syncResult.failed} student login(s).`] : [],
+      loginSync: syncResult,
     });
   } catch (e: any) {
     console.error('parse-section-excel (handler failed)', e);

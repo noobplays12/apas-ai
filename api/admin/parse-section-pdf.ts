@@ -1,6 +1,7 @@
 import type { VercelRequest, VercelResponse } from '@vercel/node';
 import { getSupabaseAdmin, getAuthedUserAndRole } from '../_supabaseAdmin.js';
 import { extractPdfText } from '../lib/extractPdfText';
+import { ensureStudentLogins } from '../lib/studentAuthSync.js';
 
 type ParsedRow = { full_name: string; roll_no: string };
 
@@ -161,7 +162,20 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
       meta: { semesterId, sectionId, parsed: rows.length },
     });
 
-    return res.status(200).json({ ok: true, inserted: rows.length, skipped: 0, totalParsed: rows.length, warnings: [] });
+    const syncResult = await ensureStudentLogins(
+      supabase as any,
+      rows.map((r) => ({ roll_no: r.roll_no, full_name: r.full_name, section_id: sectionId })),
+      semesterId
+    );
+
+    return res.status(200).json({
+      ok: true,
+      inserted: rows.length,
+      skipped: 0,
+      totalParsed: rows.length,
+      warnings: syncResult.failed ? [`Failed to create ${syncResult.failed} student login(s).`] : [],
+      loginSync: syncResult,
+    });
   } catch (e: any) {
     console.error('parse-section-pdf (handler failed)', e);
     return res.status(500).json({ error: e?.message ?? 'Parse failed' });
