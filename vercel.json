@@ -7,6 +7,18 @@
     "api/admin/parse-section-excel.ts": {
       "maxDuration": 60,
       "memory": 1024
+    },
+    "api/admin/generate-session-report.ts": {
+      "maxDuration": 30,
+      "memory": 512
+    },
+    "api/admin/create-teacher.ts": {
+      "maxDuration": 30,
+      "memory": 512
+    },
+    "api/admin/sync-student-logins.ts": {
+      "maxDuration": 60,
+      "memory": 1024
     }
   },
   "rewrites": [

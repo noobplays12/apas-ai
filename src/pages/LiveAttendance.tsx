@@ -16,10 +16,12 @@ import {
   LogOut,
   QrCode,
   Shield,
-  RefreshCw
+  RefreshCw,
+  FileText,
+  X
 } from 'lucide-react';
 import { toast } from 'sonner';
-import { motion } from 'motion/react';
+import { motion, AnimatePresence } from 'motion/react';
 import { cn } from '../lib/utils';
 import { toMillis } from '../lib/time';
 
@@ -34,6 +36,8 @@ export default function LiveAttendance({ user }: LiveAttendanceProps) {
   const [students, setStudents] = useState<UserProfile[]>([]);
   const [loading, setLoading] = useState(true);
   const [timeLeft, setTimeLeft] = useState<string>('00:00');
+  const [showReportPrompt, setShowReportPrompt] = useState(false);
+  const [endedSessionId, setEndedSessionId] = useState<string | null>(null);
   const navigate = useNavigate();
 
   useEffect(() => {
@@ -132,12 +136,37 @@ export default function LiveAttendance({ user }: LiveAttendanceProps) {
         .eq('id', sessionId);
       if (error) throw error;
       toast.success('Session ended successfully');
-      // This app's "Dashboard" route is `/`
-      navigate('/');
+      const presentNow = attendance.filter(a => a.status === 'present').length;
+      if (presentNow >= 1) {
+        setEndedSessionId(sessionId);
+        setShowReportPrompt(true);
+      } else {
+        navigate('/');
+      }
     } catch (error) {
       console.error(error);
       toast.error('Failed to end session');
     }
+  };
+
+  const handleGenerateReport = async (generate: boolean) => {
+    setShowReportPrompt(false);
+    if (generate && endedSessionId) {
+      const sid = endedSessionId;
+      try {
+        const { data: authData } = await supabase.auth.getSession();
+        const token = authData.session?.access_token;
+        await fetch('/api/admin/generate-session-report', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json', ...(token ? { Authorization: `Bearer ${token}` } : {}) },
+          body: JSON.stringify({ sessionId: sid }),
+        });
+        toast.success('Report generated and saved to Reports section!');
+      } catch {
+        toast.error('Could not save report, but session ended successfully.');
+      }
+    }
+    navigate('/reports');
   };
 
   if (loading) {
@@ -387,6 +416,43 @@ export default function LiveAttendance({ user }: LiveAttendanceProps) {
           </div>
         </div>
       </div>
+
+      {/* Report Prompt */}
+      <AnimatePresence>
+        {showReportPrompt && (
+          <motion.div
+            initial={{ opacity: 0, y: -20, x: '-50%' }}
+            animate={{ opacity: 1, y: 0, x: '-50%' }}
+            exit={{ opacity: 0, y: -20, x: '-50%' }}
+            className="fixed top-6 left-1/2 z-50 w-full max-w-sm rounded-2xl bg-white p-6 shadow-2xl border border-gray-100"
+          >
+            <div className="flex items-start gap-4">
+              <div className="rounded-xl bg-blue-50 p-3 text-[#003399] shrink-0">
+                <FileText size={22} />
+              </div>
+              <div className="flex-1">
+                <p className="text-sm font-black text-gray-900">Generate Attendance Report?</p>
+                <p className="mt-1 text-xs font-medium text-gray-500">
+                  {attendance.filter(a => a.status === 'present').length} students marked present. Save this session's report?
+                </p>
+                <div className="mt-4 flex gap-2">
+                  <button onClick={() => handleGenerateReport(true)}
+                    className="flex-1 rounded-xl bg-[#003399] py-2.5 text-xs font-black text-white hover:bg-[#002266]">
+                    Yes, Generate Report
+                  </button>
+                  <button onClick={() => handleGenerateReport(false)}
+                    className="flex-1 rounded-xl bg-gray-100 py-2.5 text-xs font-black text-gray-600 hover:bg-gray-200">
+                    Skip
+                  </button>
+                </div>
+              </div>
+              <button onClick={() => { setShowReportPrompt(false); navigate('/'); }} className="text-gray-400 hover:text-gray-600">
+                <X size={18} />
+              </button>
+            </div>
+          </motion.div>
+        )}
+      </AnimatePresence>
     </div>
   );
 }

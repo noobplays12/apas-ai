@@ -125,8 +125,7 @@ export default function Layout({ user }: LayoutProps) {
     } catch (e) {
       console.error('Supabase logout error:', e);
     }
-    navigate('/login');
-    window.location.reload(); // Ensure state is cleared
+    navigate('/login', { replace: true });
   };
 
   const menuItems = [
@@ -135,7 +134,7 @@ export default function Layout({ user }: LayoutProps) {
     { name: 'Reports', path: '/reports', icon: FileText, roles: ['teacher', 'admin'] },
     { name: 'Settings', path: '/settings', icon: Settings, roles: ['admin', 'student', 'teacher'] },
     { name: 'Mark Attendance', path: '/mark-attendance', icon: UserCheck, roles: ['student'] },
-    { name: 'Create Session', path: '/create-session', icon: PlusCircle, roles: ['teacher', 'admin'] },
+    { name: 'Create Session', path: '/create-session', icon: PlusCircle, roles: ['teacher'] },
     { name: 'Student Management', path: '/students', icon: GraduationCap, roles: ['admin'] },
     { name: 'Teacher Management', path: '/teachers', icon: Users, roles: ['admin'] },
     { name: 'Class Management', path: '/classes', icon: BookOpen, roles: ['admin'] },
@@ -197,7 +196,7 @@ export default function Layout({ user }: LayoutProps) {
           )}
         </nav>
 
-        {(user.role === 'teacher' || user.role === 'admin') && (
+        {user.role === 'teacher' && (
           <div className="p-6 space-y-4">
             {activeSession && (
               <Link 
@@ -214,7 +213,7 @@ export default function Layout({ user }: LayoutProps) {
                 <div className="overflow-hidden">
                   <p className="text-[10px] font-black uppercase tracking-widest opacity-70">Live Session</p>
                   <p className="truncate text-sm font-black tracking-tight">{activeSession.subjectId}</p>
-                  {user.role === 'teacher' && teacherActiveCount > 1 && (
+                  {teacherActiveCount > 1 && (
                     <p className="text-[10px] font-bold text-green-800">{teacherActiveCount} concurrent</p>
                   )}
                 </div>
